@@ -1,0 +1,49 @@
+# ── Environment & secrets ─────────────────────────────────────────────────────
+.
+.env
+.env.local
+.env.*.local
+*.env
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+.python-version
+
+# ── uv ────────────────────────────────────────────────────────────────────────
+# uv.lock is committed intentionally — do not ignore it
+
+# ── Next.js / Node ────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.vercel/
+*.tsbuildinfo
+frontend/next-env.d.ts
+
+# ── IDE & OS ──────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# ── Claude Code internal ──────────────────────────────────────────────────────
+.claude/
+SPEC.md
+CLAUDE.md
+Task_assignments.md
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/

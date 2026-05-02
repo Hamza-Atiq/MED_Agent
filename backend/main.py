@@ -1,17 +1,25 @@
-# backend/main.py
-# Person B owns this file
-# Run: uvicorn main:app --reload --port 8000
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from dotenv import load_dotenv
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="MedAgent API", version="1.0.0")
+from backend.routers import webhook, doctors, appointments
+
+app = FastAPI(
+    title="MedAgent API",
+    version="3.0.0",
+    description="AI Emergency Response Orchestrator — OpenAI Agents SDK + Groq + XAI",
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,56 +28,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(webhook.router)
+app.include_router(doctors.router)
+app.include_router(appointments.router)
+
+
 @app.get("/health")
 def health():
-    return {"status": "MedAgent is running", "version": "1.0.0"}
+    return {"status": "MedAgent is running", "version": "3.0.0", "sdk": "openai-agents"}
 
 
-# ── PHASE 1: Dummy webhook (replace with real in Phase 2) ──
-@app.post("/webhook")
-async def webhook(data: dict):
-    """
-    WhatsApp sends messages here.
-    Phase 1: returns dummy response
-    Phase 2: calls run_agent() from agents/runner.py
-    """
-    message = data.get("message", "")
-    logger.info(f"Received message: {message}")
+# ── /api/chat — used by Next.js chat UI (Faheem's cleaner endpoint) ───────────
 
-    # TODO Phase 2: replace this with real agent call
-    # from agents.runner import run_agent
-    # result = await run_agent(message, data.get("phone", ""))
-
-    dummy_result = {
-        "response": "Please stay calm. A specialist is being contacted now.",
-        "emergency_type": "cardiac",
-        "urgency": "critical",
-        "doctor_assigned": "Dr. Ahmed Khan",
-        "disclaimer": "⚠️ This is not medical advice."
-    }
-    return dummy_result
+class ChatRequest(BaseModel):
+    message: str
+    phone: str = "demo-user"
+    name: str = "Patient"
+    city: str = "Lahore"
+    history: list = []
 
 
-# ── API Routes (connect to Supabase in Phase 2) ──
-@app.get("/api/doctors")
-async def get_doctors():
-    """Returns all available doctors"""
-    # TODO: replace with Supabase query
-    return {"doctors": [
-        {"id": "1", "name": "Dr. Ahmed Khan", "specialty": "cardiology", "city": "Lahore", "rating": 4.9},
-        {"id": "2", "name": "Dr. Sara Malik", "specialty": "cardiology", "city": "Karachi", "rating": 4.8},
-    ]}
+@app.post("/api/chat")
+async def api_chat(req: ChatRequest):
+    """Web chat endpoint — runs full SDK agent pipeline."""
+    from medagents.runner import run_agent
+    result = await run_agent(
+        message=req.message,
+        patient_phone=req.phone,
+        patient_name=req.name,
+        city=req.city,
+        history=req.history or None,
+    )
+    return result
 
+
+# ── /api/activity-logs + /api/dashboard/logs (both work) ─────────────────────
 
 @app.get("/api/activity-logs")
-async def get_activity_logs():
-    """Returns recent patient cases for dashboard"""
-    # TODO: replace with Supabase query
-    return {"logs": []}
-
-
-@app.post("/api/appointments")
-async def create_appointment(data: dict):
-    """Book a new appointment"""
-    # TODO: save to Supabase
-    return {"status": "booked", "appointment_id": "dummy-123"}
+@app.get("/api/dashboard/logs")
+async def get_activity_logs(limit: int = 20):
+    from backend.services.supabase_client import get_activity_logs
+    logs = await get_activity_logs(limit=limit)
+    return {"logs": logs}
