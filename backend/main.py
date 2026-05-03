@@ -13,7 +13,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-from backend.routers import webhook, doctors, appointments
+from backend.routers import webhook, doctors, appointments, auth
 
 app = FastAPI(
     title="MedAgent API",
@@ -31,6 +31,7 @@ app.add_middleware(
 app.include_router(webhook.router)
 app.include_router(doctors.router)
 app.include_router(appointments.router)
+app.include_router(auth.router)
 
 
 @app.get("/health")

@@ -4,38 +4,71 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-META_WA_TOKEN = os.getenv("META_WA_TOKEN", "")
-META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID", "")
-SIMULATED = not META_WA_TOKEN or META_WA_TOKEN in ("simulated", "") or META_WA_TOKEN.startswith("EAA...") or len(META_WA_TOKEN) < 20
+
+def _is_simulated() -> bool:
+    token = os.getenv("META_WA_TOKEN", "")
+    return not token or token in ("simulated", "") or token.startswith("EAA...") or len(token) < 20
 
 
-async def send_alert(doctor: dict, patient_message: str, emergency_type: str, urgency: str) -> dict:
+async def send_alert(
+    doctor: dict,
+    patient_message: str,
+    emergency_type: str,
+    urgency: str,
+    patient_name: str = "Patient",
+    patient_phone: str = "",
+) -> dict:
     alert_text = (
-        f"🚨 MedAgent Alert\n\n"
-        f"Emergency: {emergency_type.upper()} / {urgency.upper()}\n"
-        f"Patient message: \"{patient_message}\"\n\n"
+        f"🚨 *MedAgent Emergency Alert*\n\n"
+        f"*Type:* {emergency_type.upper()} | *Priority:* {urgency.upper()}\n"
+        f"*Patient:* {patient_name}\n"
+        f"*Message:* \"{patient_message[:250]}\"\n\n"
         f"Please contact the patient immediately.\n"
-        f"⚠️ This is an automated alert from MedAgent."
+        f"⚠️ Automated alert — MedAgent AI Emergency System"
     )
 
-    if SIMULATED:
-        logger.info(f"[SIMULATED WhatsApp] → {doctor['name']} ({doctor.get('whatsapp_id', 'unknown')}): {alert_text[:80]}...")
-        return {"status": "simulated", "doctor": doctor["name"], "message_preview": alert_text[:100]}
+    wa_sent = False
+    if _is_simulated():
+        logger.info(f"[SIMULATED WhatsApp] → {doctor['name']}: {alert_text[:80]}...")
+        wa_sent = True
+    else:
+        token = os.getenv("META_WA_TOKEN", "")
+        pid = os.getenv("META_PHONE_NUMBER_ID", "")
+        try:
+            url = f"https://graph.facebook.com/v18.0/{pid}/messages"
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": doctor.get("whatsapp_id", ""),
+                "type": "text",
+                "text": {"body": alert_text},
+            }
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+            resp.raise_for_status()
+            logger.info(f"WhatsApp alert sent to {doctor['name']}")
+            wa_sent = True
+        except Exception as e:
+            logger.error(f"WhatsApp send_alert failed: {e} — falling back to Discord")
 
+    # Discord alert (runs alongside WhatsApp, not just as fallback)
+    discord_sent = False
     try:
-        url = f"https://graph.facebook.com/v18.0/{META_PHONE_NUMBER_ID}/messages"
-        headers = {"Authorization": f"Bearer {META_WA_TOKEN}", "Content-Type": "application/json"}
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": doctor["whatsapp_id"],
-            "type": "text",
-            "text": {"body": alert_text},
-        }
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-        resp.raise_for_status()
-        logger.info(f"WhatsApp alert sent to {doctor['name']}")
-        return {"status": "sent", "doctor": doctor["name"]}
+        from backend.services.discord import send_discord_alert
+        discord_sent = await send_discord_alert(
+            doctor=doctor,
+            patient_message=patient_message,
+            emergency_type=emergency_type,
+            urgency=urgency,
+            patient_name=patient_name,
+            patient_phone=patient_phone,
+        )
     except Exception as e:
-        logger.error(f"send_alert error: {e}")
-        return {"status": "failed", "error": str(e)}
+        logger.warning(f"Discord alert error: {e}")
+
+    return {
+        "status": "sent" if (wa_sent or discord_sent) else "failed",
+        "whatsapp": wa_sent,
+        "discord": discord_sent,
+        "doctor": doctor["name"],
+    }
