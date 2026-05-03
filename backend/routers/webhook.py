@@ -1,6 +1,7 @@
 import logging
 import os
 from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import PlainTextResponse
 from backend.services.whatsapp import send_message, parse_whatsapp_webhook
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ async def verify_webhook(request: Request):
     challenge = params.get("hub.challenge")
     if mode == "subscribe" and token == VERIFY_TOKEN:
         logger.info("WhatsApp webhook verified")
-        return int(challenge)
+        return PlainTextResponse(content=challenge)
     raise HTTPException(status_code=403, detail="Verification failed")
 
 
