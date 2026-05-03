@@ -70,11 +70,21 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
 
 async def _handle_whatsapp(text: str, phone: str) -> None:
     """Background task: run session state machine and reply to patient on WhatsApp."""
-    from medagents.session import handle_whatsapp_message
+    from medagents.session import handle_whatsapp_message, INTAKE_QUESTION
+    from backend.services.supabase_client import save_session
     try:
         reply = await handle_whatsapp_message(phone, text)
-        await send_message(phone, reply)
-        logger.info(f"WhatsApp reply sent to {phone}")
+        sent = await send_message(phone, reply)
+        if sent:
+            logger.info(f"WhatsApp reply sent to {phone}")
+        else:
+            # If intake question failed to send, reset session to 'new' so patient
+            # is asked again on next message rather than skipping intake entirely.
+            if reply == INTAKE_QUESTION:
+                await save_session(phone, {"state": "new", "first_msg": "", "history": []})
+                logger.warning(f"Intake send failed for {phone} — session reset to new")
+            else:
+                logger.warning(f"WhatsApp reply failed for {phone} — message may not have arrived")
     except Exception as e:
         logger.error(f"WhatsApp background handler failed: {e}")
 

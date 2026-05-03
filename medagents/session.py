@@ -86,11 +86,37 @@ async def _run_and_save(
     from backend.services.supabase_client import save_session
 
     result = await run_agent(message, patient_phone, patient_name=name, city=city, history=history)
-    reply = result["response"]
+
+    guidance = result["response"]
+    doctor = result.get("doctor_assigned", "")
+    urgency = result.get("urgency", "")
+    etype = result.get("emergency_type", "")
+
+    urgency_emoji = {"critical": "🔴", "moderate": "🟡", "low": "🟢"}.get(urgency, "")
+    type_emoji = {
+        "cardiac": "🫀", "trauma": "🩹", "neuro": "🧠",
+        "respiratory": "🫁", "gynae": "👩‍⚕️", "pediatric": "👶", "general": "🏥",
+    }.get(etype, "🏥")
+
+    parts = [
+        f"🏥 *MedAgent — {name}*",
+        "",
+        guidance,
+    ]
+    if doctor and doctor != "Searching...":
+        parts += ["", f"👨‍⚕️ *Doctor Assigned:* {doctor} ({city})"]
+    if urgency:
+        parts.append(f"{urgency_emoji} *Priority:* {urgency.upper()} {type_emoji} {etype.upper()}")
+    parts += [
+        "",
+        "⚠️ _Informational guidance only. In emergencies: 1122 (Rescue) | 115 (Edhi)_",
+    ]
+
+    reply = "\n".join(parts)
 
     new_history = history + [
         {"role": "user", "content": message},
-        {"role": "assistant", "content": reply},
+        {"role": "assistant", "content": guidance},
     ]
     await save_session(session_phone, {"history": new_history[-12:]})
     return reply
