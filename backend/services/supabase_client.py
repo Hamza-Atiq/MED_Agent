@@ -139,3 +139,27 @@ async def update_appointment_status(appointment_id: str, status: str) -> None:
         client.table("appointments").update({"status": status}).eq("id", appointment_id).execute()
     except Exception as e:
         logger.error(f"update_appointment_status error: {e}")
+
+
+async def get_session(phone: str) -> dict | None:
+    try:
+        client = get_client()
+        result = client.table("sessions").select("*").eq("phone", phone).limit(1).execute()
+        return result.data[0] if result.data else None
+    except Exception as e:
+        logger.error(f"get_session error: {e}")
+        return None
+
+
+async def save_session(phone: str, updates: dict) -> None:
+    from datetime import datetime, timezone
+    try:
+        client = get_client()
+        updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+        existing = client.table("sessions").select("phone").eq("phone", phone).limit(1).execute()
+        if existing.data:
+            client.table("sessions").update(updates).eq("phone", phone).execute()
+        else:
+            client.table("sessions").insert({"phone": phone, **updates}).execute()
+    except Exception as e:
+        logger.error(f"save_session error: {e}")

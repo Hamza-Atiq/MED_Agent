@@ -11,22 +11,28 @@ export default function Dashboard() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [filter, setFilter] = useState<string>("all");
   const [liveCount, setLiveCount] = useState(0);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [logData, docData] = await Promise.all([getLogs(30), getDoctors()]);
-        setLogs(logData.logs || []);
-        setDoctors(docData.doctors || []);
-      } catch (e) {
-        console.error("Failed to load dashboard data:", e);
-      } finally {
-        setLoading(false);
-      }
+  async function fetchAll() {
+    setError(false);
+    const [logsResult, docsResult] = await Promise.allSettled([getLogs(30), getDoctors()]);
+    let anyOk = false;
+    if (logsResult.status === "fulfilled") {
+      setLogs(logsResult.value.logs || []);
+      anyOk = true;
     }
-    load();
+    if (docsResult.status === "fulfilled") {
+      setDoctors(docsResult.value.doctors || []);
+      anyOk = true;
+    }
+    if (!anyOk) setError(true);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    fetchAll();
 
     // Supabase Realtime — primary live updates
     const channel = supabase
@@ -41,21 +47,14 @@ export default function Dashboard() {
       )
       .subscribe();
 
-    // Polling fallback — refreshes every 15s to catch missed realtime events
-    const poll = setInterval(async () => {
-      try {
-        const [logData, docData] = await Promise.all([getLogs(30), getDoctors()]);
-        setLogs(logData.logs || []);
-        setDoctors(docData.doctors || []);
-      } catch {
-        // silently ignore — realtime may still be working
-      }
-    }, 15_000);
+    // Polling fallback — refreshes every 15s
+    const poll = setInterval(() => { fetchAll(); }, 15_000);
 
     return () => {
       supabase.removeChannel(channel);
       clearInterval(poll);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = logs
@@ -121,6 +120,16 @@ export default function Dashboard() {
 
             {loading ? (
               <div className="text-slate-500 text-center py-12 animate-pulse">Loading cases...</div>
+            ) : error ? (
+              <div className="text-center py-12 space-y-3">
+                <p className="text-slate-400 text-sm">Could not connect to backend.</p>
+                <button
+                  onClick={fetchAll}
+                  className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm"
+                >
+                  Retry
+                </button>
+              </div>
             ) : filtered.length === 0 ? (
               <div className="text-slate-500 text-center py-12">
                 No cases yet. Send a message on the patient chat to create one.

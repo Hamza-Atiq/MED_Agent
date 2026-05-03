@@ -1,7 +1,8 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+const STORAGE_KEY = "medagent_chat_v1";
 
 type TriageMeta = {
   emergency_type: string;
@@ -35,20 +36,66 @@ const TYPE_EMOJI: Record<string, string> = {
   respiratory: "🫁", gynae: "👩‍⚕️", pediatric: "👶", general: "🏥",
 };
 
+const WELCOME: Message = {
+  id: "0",
+  role: "agent",
+  text: "Assalam o Alaikum! I'm MedAgent — your AI emergency medical assistant.\n\nPlease describe the emergency and I will immediately guide you and connect you with a doctor. 🏥",
+  timestamp: new Date(),
+};
+
+function reviveMessages(raw: unknown): Message[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [WELCOME];
+  return raw.map((m: Record<string, unknown>) => ({ ...m, timestamp: new Date(m.timestamp as string) })) as Message[];
+}
+
 export default function ChatWidget() {
-  const [messages, setMessages] = useState<Message[]>(() => [{
-    id: "0",
-    role: "agent",
-    text: "Assalam o Alaikum! I'm MedAgent — your AI emergency medical assistant.\n\nPlease describe the emergency and I will immediately guide you and connect you with a doctor. 🏥",
-    timestamp: new Date(),
-  }]);
+  const [hydrated, setHydrated] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([WELCOME]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState("Patient");
-  const [city, setCity] = useState("Lahore");
-  const [phone] = useState(() => `demo-${Math.random().toString(36).slice(2, 8)}`);
+  const [city, setCity] = useState("");
+  const [phone] = useState(() => {
+    if (typeof window === "undefined") return "demo-ssr";
+    const saved = localStorage.getItem(STORAGE_KEY + "_phone");
+    if (saved) return saved;
+    const id = `demo-${Math.random().toString(36).slice(2, 8)}`;
+    localStorage.setItem(STORAGE_KEY + "_phone", id);
+    return id;
+  });
   const [history, setHistory] = useState<{ role: string; content: string }[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Load persisted state from localStorage after hydration
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        setMessages(reviveMessages(saved.messages));
+        setName(saved.name || "Patient");
+        setCity(saved.city || "");
+        setHistory(saved.history || []);
+      }
+    } catch { /* ignore corrupt storage */ }
+    setHydrated(true);
+  }, []);
+
+  // Persist to localStorage whenever messages or profile change
+  const saveToStorage = useCallback((
+    msgs: Message[],
+    n: string,
+    c: string,
+    hist: { role: string; content: string }[],
+  ) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ messages: msgs, name: n, city: c, history: hist }));
+    } catch { /* quota exceeded — ignore */ }
+  }, []);
+
+  useEffect(() => {
+    if (hydrated) saveToStorage(messages, name, city, history);
+  }, [messages, name, city, history, hydrated, saveToStorage]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -57,6 +104,15 @@ export default function ChatWidget() {
   async function handleSend() {
     const text = input.trim();
     if (!text || loading) return;
+    if (!city.trim()) {
+      setMessages((m) => [...m, {
+        id: Date.now().toString(),
+        role: "agent",
+        text: "Please enter your city above so I can assign the nearest doctor to you.",
+        timestamp: new Date(),
+      }]);
+      return;
+    }
 
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -122,9 +178,21 @@ export default function ChatWidget() {
         <input
           value={city}
           onChange={(e) => setCity(e.target.value)}
-          className="border border-gray-200 rounded-lg px-2 py-1 text-xs w-28 focus:outline-none focus:border-green-400"
-          placeholder="City"
+          className={`border rounded-lg px-2 py-1 text-xs w-28 focus:outline-none focus:border-green-400 ${!city ? "border-amber-300 bg-amber-50" : "border-gray-200"}`}
+          placeholder="Your city ⚠️"
         />
+        {messages.length > 1 && (
+          <button
+            onClick={() => {
+              setMessages([WELCOME]);
+              setHistory([]);
+              localStorage.removeItem(STORAGE_KEY);
+            }}
+            className="ml-auto text-[10px] text-gray-400 hover:text-red-500 transition-colors"
+          >
+            Clear chat
+          </button>
+        )}
       </div>
 
       {/* Messages */}

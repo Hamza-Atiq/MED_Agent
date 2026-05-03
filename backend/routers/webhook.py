@@ -69,13 +69,12 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
 
 
 async def _handle_whatsapp(text: str, phone: str) -> None:
-    """Background task: run AI pipeline and reply to patient on WhatsApp."""
-    from medagents.runner import run_agent
+    """Background task: run session state machine and reply to patient on WhatsApp."""
+    from medagents.session import handle_whatsapp_message
     try:
-        result = await run_agent(text, phone)
-        reply = result["greeting"] + "\n\n" + result["response"]
+        reply = await handle_whatsapp_message(phone, text)
         await send_message(phone, reply)
-        logger.info(f"WhatsApp reply sent to {phone} — type={result['emergency_type']}")
+        logger.info(f"WhatsApp reply sent to {phone}")
     except Exception as e:
         logger.error(f"WhatsApp background handler failed: {e}")
 
